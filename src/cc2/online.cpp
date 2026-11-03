@@ -54,7 +54,21 @@ enum class Signin { kNone, kOpening, kOpen };
 Signin g_signin = Signin::kNone;
 Clock::time_point g_signin_at;
 
-std::filesystem::path SyncedFile() { return rex::filesystem::GetExecutableFolder() / "trophies-synced.txt"; }
+// Achievements already sent to the server, one id per line: in the save folder, beside the exe without one.
+std::filesystem::path SyncedFile() {
+  const std::filesystem::path root = g_runtime ? g_runtime->user_data_root() : std::filesystem::path();
+  return (root.empty() ? rex::filesystem::GetExecutableFolder() : root) / "trophies-synced.txt";
+}
+
+// A list left beside the exe moves into the save folder, so its ids aren't sent again.
+void AdoptExeSyncedFile() {
+  const auto beside_exe = rex::filesystem::GetExecutableFolder() / "trophies-synced.txt";
+  const auto path = SyncedFile();
+  std::error_code ec;
+  if (path == beside_exe || !std::filesystem::exists(beside_exe, ec) || std::filesystem::exists(path, ec)) return;
+  std::filesystem::create_directories(path.parent_path(), ec);
+  std::filesystem::rename(beside_exe, path, ec);
+}
 
 std::wstring Wide(const std::string& s) { return std::wstring(s.begin(), s.end()); }
 
@@ -230,6 +244,7 @@ void Worker() {
 void Start(rex::Runtime* runtime) {
   g_runtime = runtime;
   if (!REXCVAR_GET(online_mode)) return;
+  AdoptExeSyncedFile();
   if (runtime && runtime->kernel_state()) {
     // First-time unlocks only; ones saved from earlier runs are caught up by the worker after sign-in.
     g_listener = runtime->kernel_state()->achievements().RegisterUnlockCallback(
