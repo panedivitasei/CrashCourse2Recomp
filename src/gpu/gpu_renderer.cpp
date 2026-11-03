@@ -526,6 +526,8 @@ class Backend {
   uint32_t scale_pct_ = 100;
   uint32_t shadow_scale_pct_ = 100;
   uint64_t failed_scales_ = 0;  // the scale pair ResizeTargets gave up on, so a failure is not retried with a stall per frame
+  uint64_t settling_scales_ = 0;  // the scale pair the display settings last asked for, and since when
+  std::chrono::steady_clock::time_point settling_since_{};
   uint32_t msaa_ = 0;  // host samples forced on render targets, 0 = the game's own
 
   // Sampler sets by content; a set unused for a full ring of frames can be rewritten.
@@ -1350,7 +1352,17 @@ void Backend::Execute(const SwapRecord& r) {
   ++frame_counter_;
   // A frame's persistent frees are safe once every slot has cycled past it.
   if (frame_counter_ > kFramesInFlight) persistent_.Retire(frame_counter_ - kFramesInFlight - 1);
-  ResizeTargets(uint32_t(cc2::display::ResolutionScale()), uint32_t(cc2::display::ShadowScale()));
+  // The display menu's slider moves in steps: a scale is applied once it has held for a moment, so a drag resizes
+  // (and resamples what the targets hold) once rather than at every step.
+  const uint32_t scale = uint32_t(cc2::display::ResolutionScale()), shadow_scale = uint32_t(cc2::display::ShadowScale());
+  const uint64_t wanted = (uint64_t(scale) << 32) | shadow_scale;
+  const auto now = std::chrono::steady_clock::now();
+  if (wanted != settling_scales_) {
+    settling_scales_ = wanted;
+    settling_since_ = now;
+  } else if (now - settling_since_ >= std::chrono::milliseconds(400)) {
+    ResizeTargets(scale, shadow_scale);
+  }
 }
 
 // Counts presents per half second and, when the number changes, rasterizes "<n> FPS" from cardigan_bd: the .fnt

@@ -8,9 +8,14 @@ Texture2D<float4> source_single : register(t0);
 Texture2DMS<float4> source_multi : register(t0);
 Texture2D<uint2> stencil_single : register(t0);
 Texture2DMS<uint2> stencil_multi : register(t0);
+SamplerState linear_sampler : register(s2);
 
+// Colour is filtered, so a picture the game drew once (a HUD gamerpic) stays smooth; depth and stencil take the
+// nearest texel.
 float4 ColorMain(float4 position : SV_Position) : SV_Target0 {
-  return source_single.Load(int3(int2((floor(position.xy) + 0.5) * source_ratio), 0));
+  uint width, height;
+  source_single.GetDimensions(width, height);
+  return source_single.SampleLevel(linear_sampler, position.xy * source_ratio / float2(width, height), 0.0);
 }
 float4 ColorMsMain(float4 position : SV_Position, uint sample : SV_SampleIndex) : SV_Target0 {
   return source_multi.Load(int2((floor(position.xy) + 0.5) * source_ratio), sample);
