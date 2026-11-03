@@ -93,6 +93,10 @@ REXCVAR_DEFINE_BOOL(player_2_mnk, false, "Input",
 namespace cc2::kernel::xam {
 namespace {
 
+// Local players the game is offered; controllers 3 and 4 read as disconnected, as the game stops taking input with
+// three or more players joined.
+constexpr uint32_t kLocalPlayers = 2;
+
 // The SDK's slot assignment, with the keyboard and mouse on player 2 under player_2_mnk. While the Guide is up the
 // keyboard and mouse feed no player: the Guide reads them itself, and each player's controller still reaches it.
 class TitleAssignment final : public rex::input::DeviceAssignment {
@@ -105,7 +109,7 @@ class TitleAssignment final : public rex::input::DeviceAssignment {
       if (keyboard) keyboard_ = device.id;
       if (device.synthetic) {
         users_[keyboard && REXCVAR_GET(player_2_mnk) ? 1 : 0].push_back(device.id);
-      } else if (device.ordinal < rex::input::kMaxGuestUsers) {
+      } else if (device.ordinal < kLocalPlayers) {
         users_[device.ordinal].push_back(device.id);
       }
     }
