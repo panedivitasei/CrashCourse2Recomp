@@ -1206,6 +1206,22 @@ void Backend::Execute(const ResolveRecord& r) {
     // Only depth into a float depth texture is modelled; any other destination shows magenta.
     BindTarget(*dest);
     list->clearColor(0, plume::RenderColor(1.0f, 0.0f, 1.0f, 1.0f));
+  } else if (r.dest.format != HostFormat::kUnsupported && source->scale != dest->scale && source->samples == 1 &&
+             !source->depth()) {
+    // The course shadow scale covers every 1024x1024 surface: a resolve between one of those and a surface at the
+    // resolution scale is stretched to the destination's own scale.
+    const plume::RenderRect from(Scaled(*source, r.source_rect.left), Scaled(*source, r.source_rect.top),
+                                 std::min(Scaled(*source, r.source_rect.right), int32_t(source->width)),
+                                 std::min(Scaled(*source, r.source_rect.bottom), int32_t(source->height)));
+    const int32_t right = r.dest_x + r.source_rect.right - r.source_rect.left;
+    const int32_t bottom = r.dest_y + r.source_rect.bottom - r.source_rect.top;
+    const plume::RenderRect to(Scaled(*dest, r.dest_x), Scaled(*dest, r.dest_y),
+                               std::min(Scaled(*dest, right), int32_t(dest->width)),
+                               std::min(Scaled(*dest, bottom), int32_t(dest->height)));
+    if (from.right > from.left && from.bottom > from.top && to.left >= 0 && to.top >= 0 && to.right > to.left &&
+        to.bottom > to.top) {
+      Blit(*source, from, dest->texture.get(), dest->framebuffer.get(), dest->format, to, r.scale, true, false, dest);
+    }
   } else if (r.dest.format != HostFormat::kUnsupported) {
     // Guest rects in host texels; source and destination share their scale, so the copy stays 1:1.
     int32_t sx = Scaled(*source, r.source_rect.left), sy = Scaled(*source, r.source_rect.top);
