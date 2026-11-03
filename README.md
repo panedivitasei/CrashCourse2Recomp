@@ -11,7 +11,7 @@ This project doesn't include the game or assets.
 ## Features
 
 - Hong Kong DLC
-- Online multiplayer
+- Online and local multiplayer
 - Avatars from the [Avatar Editor Recomp](https://github.com/panedivitasei/AvatarEditorRecomp)
 - Native D3D12 renderer
 
@@ -31,3 +31,5 @@ See [BUILDING.md](BUILDING.md).
 - [XenosRecomp](https://github.com/hedge-dev/XenosRecomp)
 - [plume](https://github.com/renderbag/plume)
 - [RexLiveless](https://github.com/SolarCookies/RexLiveless)
+
+Special thanks to [Sherlyn](https://x.com/sherlyn_marsh) for the original artwork. 
