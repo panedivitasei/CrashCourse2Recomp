@@ -1,0 +1,17 @@
+out/
+userdata/
+/shaderpack/
+*.xex
+*.xexp
+*.log
+plume_present_dbg.txt
+.publish/
+__pycache__/
+/sdk/
+captures/
+*.rdc
+tmp/
+.vs/
+CMakeUserPresets.json
+/tools/renderdoc/
+/tools/diag/

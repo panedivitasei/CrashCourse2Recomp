@@ -1,0 +1,304 @@
+
+# ============================================================================
+# Online services
+# ============================================================================
+
+# Report the game's Sentient backend as connected (0x580004) and kick the
+# store refresh once the LiveGamer bootstrap has parsed. The shop, economy,
+# and content gates all sit behind this connection state.
+[[midasm_hook]]
+address = 0x824FCFD0
+name = "DCC2_SentientConnected"
+registers = ["r3"]
+return_on_true = true
+
+# Suppress the ContentUpToDateFail event firers; offline they would loop the
+# content-update failure splash. Each returns 2 (up to date).
+[[midasm_hook]]
+address = 0x8228AD30
+name = "DCC2_NoContentFail1"
+registers = ["r3"]
+return_on_true = true
+[[midasm_hook]]
+address = 0x8228ADB8
+name = "DCC2_NoContentFail2"
+registers = ["r3"]
+return_on_true = true
+[[midasm_hook]]
+address = 0x8228ADF0
+name = "DCC2_NoContentFail3"
+registers = ["r3"]
+return_on_true = true
+[[midasm_hook]]
+address = 0x8228AE28
+name = "DCC2_NoContentFail4"
+registers = ["r3"]
+return_on_true = true
+
+# Skip the GAME_SERVICES_CONNECTION_LOST message and the title kick by jumping
+# the connection-lost branch to the handler's no-op exit. Without this the
+# Settings "Save and Exit" flow soft-bricks offline.
+[[midasm_hook]]
+address = 0x82B12338
+name = "DCC2_SuppressServiceLost"
+jump_address = 0x82B123B0
+
+# Offline the pending gamer-picture award count goes non-zero with an empty item deque, and the
+# null items raise the "cannot save gamer pictures" popup; a populated queue runs natively.
+[[midasm_hook]]
+address = 0x82AF2A98
+name = "DCC2_SkipPhantomGamerPicQueue"
+registers = ["r3"]
+return_on_true = true
+
+# ============================================================================
+# Menus
+# ============================================================================
+
+# Per-frame scene-composition stage for the menus render path: the per-frame
+# UI ticks and the one-shot store refresh once the scene is live.
+[[midasm_hook]]
+address = 0x82AFB630
+name = "DCC2_SceneComposeTick"
+registers = []
+
+# ============================================================================
+# Time Trial
+# ============================================================================
+
+# The loader only reads the level's shipped default game clips in mode 0, and
+# the Time Trial lobby's downloaded clip list is always empty offline. Jump to
+# the fall-through that loads the local default clips.
+[[midasm_hook]]
+address = 0x82B75350
+name = "DCC2_ForceLocalClipsInNemesis"
+registers = ["r3"]
+jump_address_on_true = 0x82B75354
+
+# NEMESISLAUNCHER::Launch refuses an empty downloaded-clip vector, which offline is always; the
+# loops after the check are empty-safe and in-race ghosts come from the local default clips.
+[[midasm_hook]]
+address = 0x82AE32DC
+name = "DCC2_AllowEmptyNemesisLaunch"
+registers = ["r3"]
+jump_address_on_true = 0x82AE32E0
+
+# ============================================================================
+# Race setup and AI opponents
+# ============================================================================
+
+# Replay the avatar-changed recipe over the manager's random-pool avatar
+# masters at race setup so every race rebuilds the AI ghost avatars with
+# fresh random looks.
+[[midasm_hook]]
+address = 0x82B72138
+name = "DCC2_RerollGhostAvatars"
+registers = ["r3", "r4"]
+
+# Skip the racer model attach when the racer render actor is uninitialized,
+# avoiding a garbage vtable dereference during offline launches.
+[[midasm_hook]]
+address = 0x82B6D4C0
+name = "DCC2_SkipRacerModelIfInvalid"
+registers = ["r3"]
+return_on_true = true
+
+# ============================================================================
+# Avatars
+# ============================================================================
+
+# Skip drawing an unbuilt menu avatar model: the boned-model draw dereferences
+# a sub-object that is null until the avatar resources are built. Built models
+# draw normally.
+[[midasm_hook]]
+address = 0x829EEE38
+name = "DCC2_SkipUnbuiltModel"
+registers = ["r3"]
+return_on_true = true
+
+# AVATARMODELMANAGER::OnPlayerAvatarChanged: provide the avatar data buffer so
+# the load/attach path completes offline.
+[[midasm_hook]]
+address = 0x829ED3B8
+name = "DCC2_InjectAvatarData"
+registers = ["r3", "r4"]
+
+# Force the boned-model resource build offline; the racer-avatar build does
+# not complete naturally without it and the level crashes. Jumps the
+# LoadInBackground gate to the build path.
+[[midasm_hook]]
+address = 0x829F09D0
+name = "DCC2_ForceAvatarBuild"
+registers = ["r31"]
+jump_address = 0x829F0A08
+
+# Fill the AVATARMODELMASTER's inline metadata from the cached avatar
+# metadata at UpdateAvatarDataLoading entry, so the master's load completes
+# and the resource build and animation master register for real.
+[[midasm_hook]]
+address = 0x829EF818
+name = "DCC2_SetMasterMetadata"
+registers = ["r3"]
+
+# ============================================================================
+# Audio
+# ============================================================================
+
+# Register the mastering nodes at their one-shot Initialize; the master-mix
+# delivery below scans their input slots.
+[[midasm_hook]]
+address = 0x82688C88
+name = "DCC2_RegisterOutputNode"
+registers = ["r3"]
+
+# Inside the render callback, copy the FMOD master mix from the connection's
+# own node slot over the silence-filled driver buffer. The output node's slot
+# index is desynced from where the mix lands, so without this the driver
+# buffer plays silence.
+[[midasm_hook]]
+address = 0x8266BD5C
+name = "DCC2_InjectMasterMix"
+registers = ["r31"]
+
+# Single-threaded LEAP never runs CBufferManager::MergeBuffers (gated on
+# numThreads > 1), so the voice mix never reaches the mastering node's input
+# slots. Call the game's own merge once per mix pass.
+[[midasm_hook]]
+address = 0x8266966C
+name = "DCC2_ForceMerge"
+registers = ["r31"]
+
+# ============================================================================
+# Media player pacing
+# ============================================================================
+
+# The XMA media wait spins a full core while a video plays. Sleep briefly per
+# watchdog iteration once past a short grace window.
+[[midasm_hook]]
+address = 0x82542B98
+name = "DCC2_MediaWatchdogSleep"
+registers = ["r3"]
+
+# Kick the XMA decoder at media-wait entry and reset the watchdog grace
+# counter, so decode progress paces the wait instead of a busy spin.
+[[midasm_hook]]
+address = 0x82547C20
+name = "DCC2_MediaWaitKick"
+registers = ["r3", "r4"]
+
+# ============================================================================
+# Video options
+# ============================================================================
+
+# Water reflections toggle (dcc2_water_reflection): zeroes the reflection
+# plane lookup when disabled.
+[[midasm_hook]]
+address = 0x82BE3110
+name = "DCC2_ReflectionPlaneGate"
+registers = ["r3"]
+
+# Render distance option (dcc2_render_distance): clamps the camera far plane.
+[[midasm_hook]]
+address = 0x82AB9990
+name = "DCC2_RenderDistanceGate"
+registers = ["r3"]
+
+# Shadow coverage options (dcc2_shadow_distance and the minimum-extent
+# tunables): raises the per-level shadow box so shadows stay present at
+# distance.
+[[midasm_hook]]
+address = 0x82AB8C54
+name = "DCC2_ShadowBoxFloor"
+registers = ["r1"]
+
+# ============================================================================
+# Stability
+# ============================================================================
+
+# std::map operator[] guard for the shop task's use-after-free: a dead or
+# recycled map would descend a freed tree forever. Validate the head node at
+# entry and hand back a scratch value block instead of hanging.
+[[midasm_hook]]
+address = 0x822E6328
+name = "DCC2_MapLookupGuard"
+registers = ["r3", "r4"]
+return_on_true = true
+
+# ============================================================================
+# Frame counters (src/cc2/scene_driver.cpp).
+# ============================================================================
+
+# Draw counting at the two draw entries videonative doesn't hook.
+[[midasm_hook]]
+address = 0x825435C8
+name = "Cc2Scene_CountDraw"
+registers = []
+
+[[midasm_hook]]
+address = 0x82543AD0
+name = "Cc2Scene_CountDraw"
+registers = []
+
+# Draw counting at DrawVertices, DrawIndexedVertices and their UP forms (TU1 entries).
+
+[[midasm_hook]]
+address = 0x825440B0
+name = "Cc2Scene_CountDraw"
+registers = []
+
+[[midasm_hook]]
+address = 0x825444C8
+name = "Cc2Scene_CountDraw"
+registers = []
+
+[[midasm_hook]]
+address = 0x82543A88
+name = "Cc2Scene_CountDraw"
+registers = []
+
+[[midasm_hook]]
+address = 0x82544010
+name = "Cc2Scene_CountDraw"
+registers = []
+
+# ============================================================================
+# GPU edge layer (src/gpu/edge.cpp): the D3D runtime's GPU-facing side with no GPU behind it.
+# ============================================================================
+
+# CDevice::SetFence, at the store of the advanced fence counter: complete the fence and its ring
+# position.
+[[midasm_hook]]
+address = 0x825486A4
+name = "Cc2Edge_FenceIssued"
+registers = ["r5", "r6", "r11"]
+
+# CDevice::AddCallsToPrimaryBuffer, at the store of the new primary write index: the ring reads
+# as consumed.
+[[midasm_hook]]
+address = 0x82548300
+name = "Cc2Edge_PrimaryKick"
+registers = ["r11", "r27"]
+
+# CDevice::QueueCommands and QueueIndirectBuffer, after each add to the outstanding-buffer count:
+# the GPU would retire them, so the count returns to zero at once.
+[[midasm_hook]]
+address = 0x82548FAC
+name = "Cc2Edge_ChunkQueued"
+registers = ["r31"]
+
+[[midasm_hook]]
+address = 0x82548BA0
+name = "Cc2Edge_ChunkQueued"
+registers = ["r31"]
+
+[[midasm_hook]]
+address = 0x82548C4C
+name = "Cc2Edge_ChunkQueued"
+registers = ["r31"]
+
+[[midasm_hook]]
+address = 0x82548C78
+name = "Cc2Edge_ChunkQueued"
+registers = ["r31"]
+
+# D3DDevice_Swap pacing and the scene tick live in the Swap override in src/gpu/gpu_capture.cpp.

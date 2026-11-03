@@ -1,0 +1,4 @@
+# Ignore all game assets
+*
+!.gitignore
+!cc2.png

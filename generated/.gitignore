@@ -1,0 +1,6 @@
+*
+!.gitignore
+!rexglue.cmake
+!cc2/
+cc2/*
+!cc2/sources.cmake

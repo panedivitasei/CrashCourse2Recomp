@@ -1,0 +1,26 @@
+# Crash Course 2 recompilation manifest (ReXGlue codegen input).
+
+[project]
+name = "cc2"
+sdk_version = "0.10.0"
+game_root = "assets"
+
+[entrypoint]
+file_path = "assets/default.xex"
+out_directory_path = "generated/cc2"
+# TU1 (assets/default.xexp) is picked up as the loose sibling patch and applied
+# before the scan, so the recompiled image is the patched one. Guest addresses
+# in src/ use the TU1 mapping (src/dcc2_tu1_map.h).
+#
+# CRT setjmp/longjmp
+setjmp_address = 0x828D9D30
+longjmp_address = 0x828D5AC0
+# Non-volatiles stay in ctx. Localizing them (the fork's setting) elides the
+# __savegprlr/__restgprlr helpers globally, and upstream's per-function
+# share_registers opt-out keeps that elision, so callee-saved registers were
+# not preserved across calls inside the video codec ranges.
+non_volatile_as_local = false
+includes = [
+"config/cc2_funcs.toml",
+"config/cc2_hooks.toml",
+]

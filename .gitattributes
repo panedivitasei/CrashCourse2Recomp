@@ -1,0 +1,9 @@
+# Generated shader bytecode (byte arrays)
+src/gpu/shaders/*_shaders.h linguist-generated
+
+# Vendored single-header libraries
+src/kernel/xam/stb_image.h linguist-vendored
+
+# Vendored upstream trees
+thirdparty/** linguist-vendored
+tools/XenosRecomp/** linguist-vendored

@@ -1,0 +1,12 @@
+# Crash Course 2 Recomp config.
+game_data_root = "../../../assets"
+
+fullscreen = false
+mnk_mode = true      # keyboard controls
+mnk_mouse = false
+player_2_mnk = false # keyboard and mouse play player 2
+
+# false: full offline play, with no Game Jolt sign-in, lobbies or trophies.
+online_mode = true
+
+keybind_right_trigger = "Shift"
