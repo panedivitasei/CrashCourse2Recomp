@@ -14,6 +14,7 @@ This project doesn't include the game or assets.
 - Online and local multiplayer
 - Avatars from the [Avatar Editor Recomp](https://github.com/panedivitasei/AvatarEditorRecomp)
 - Native D3D12 renderer
+- Guide recreation using [RexLiveless](https://github.com/SolarCookies/RexLiveless)
 
 Settings are in the Help & Options menu and `crashcourse2.toml`. 
 
