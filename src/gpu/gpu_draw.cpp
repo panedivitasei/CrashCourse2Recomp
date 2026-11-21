@@ -388,6 +388,7 @@ struct TextureCacheEntry {
   uint64_t checked = UINT64_MAX;  // frame of the last stripe check, one per texture per frame
 };
 std::unordered_map<uint64_t, TextureCacheEntry> g_textures;
+std::atomic<uint32_t> g_texture_epoch{1};  // bumps when SweepTextures erases entries, so slot caches drop their pointers
 TextureBinding FinishBinding(TextureBinding out, TextureCacheEntry& entry);
 
 // What a fetch constant slot resolved to last time: the same six words with the same pack overrides bind the same
@@ -398,6 +399,7 @@ struct BindingSlotCache {
   uint32_t words[6] = {};
   uint64_t overrides = 0;
   uint32_t resolve_epoch = 0;
+  uint32_t texture_epoch = 0;
   ResourceDesc texture;
   std::array<uint8_t, 4> swizzle{};
   TextureCacheEntry* entry = nullptr;
@@ -515,8 +517,9 @@ TextureBinding BindTexture(const D3DDevice* device, const PackBinding& b, uint8_
   BindingSlotCache& cache = g_binding_cache[b.fetch_constant & 31];
   const uint64_t overrides = BindingOverrides(b);
   const uint32_t epoch = tracker::ResolveEpoch();
+  const uint32_t texture_epoch = g_texture_epoch.load(std::memory_order_acquire);
   if (cache.valid && cache.overrides == overrides && cache.resolve_epoch == epoch &&
-      std::memcmp(cache.words, &f, sizeof(cache.words)) == 0) {
+      cache.texture_epoch == texture_epoch && std::memcmp(cache.words, &f, sizeof(cache.words)) == 0) {
     out.texture = cache.texture;
     out.swizzle = cache.swizzle;
     if (cache.resolved || cache.entry->desc.format == HostFormat::kUnsupported) return out;
@@ -548,6 +551,7 @@ TextureBinding BindTexture(const D3DDevice* device, const PackBinding& b, uint8_
     std::memcpy(cache.words, &f, sizeof(cache.words));
     cache.overrides = overrides;
     cache.resolve_epoch = epoch;
+    cache.texture_epoch = texture_epoch;
     cache.texture = out.texture;
     cache.swizzle = out.swizzle;
     return out;
@@ -581,6 +585,7 @@ TextureBinding BindTexture(const D3DDevice* device, const PackBinding& b, uint8_
   std::memcpy(cache.words, &f, sizeof(cache.words));
   cache.overrides = overrides;
   cache.resolve_epoch = epoch;
+  cache.texture_epoch = texture_epoch;
   cache.texture = out.texture;
   cache.swizzle = out.swizzle;
   cache.entry = &entry;
@@ -1491,6 +1496,25 @@ void BeginInline(PPCContext& ctx, uint8_t* base, const DrawArgs& a, uint32_t ver
 }  // namespace
 
 void FinishPending() { FinishInline(); }
+
+void SweepTextures(std::vector<uint32_t>& ids) {
+  constexpr uint64_t kIdleFrames = 1800;
+  const uint64_t frame = FrameIndex();
+  if (frame & 0xFF) return;
+  std::lock_guard lock(g_mutex);
+  bool erased = false;
+  for (auto it = g_textures.begin(); it != g_textures.end();) {
+    const TextureCacheEntry& entry = it->second;
+    if (entry.frame != UINT64_MAX && entry.frame + kIdleFrames < frame) {
+      ids.push_back(entry.desc.id);
+      it = g_textures.erase(it);
+      erased = true;
+    } else {
+      ++it;
+    }
+  }
+  if (erased) g_texture_epoch.fetch_add(1, std::memory_order_release);
+}
 
 void FinishPreparation(Packet& packet) {
   std::lock_guard lock(g_mutex);

@@ -242,6 +242,10 @@ REX_HOOK_RAW(sub_82542220) {
   record.front = tracker::Texture(ctx.r4.u32);
   record.frame = cc2::scene::FrameCount();
   cc2::gpu::WaitForWarmup();
+  cc2::gpu::ReleaseRecord released;
+  tracker::TakeRetired(released.ids);
+  cc2::gpu::draw::SweepTextures(released.ids);
+  if (!released.ids.empty()) cc2::gpu::Submit(std::move(released));
   cc2::gpu::Submit(std::move(record));
   cc2::gpu::EndFrame();
   __imp__sub_82542220(ctx, base);

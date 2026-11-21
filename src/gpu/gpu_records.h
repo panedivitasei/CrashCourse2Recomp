@@ -250,7 +250,12 @@ struct DrawRecord {
   std::shared_ptr<PreparedDrawState> prepared_state;
 };
 
-using Record = std::variant<ClearRecord, ResolveRecord, SwapRecord, DrawRecord>;
+// Host resources the guest side dropped; freed once the frames that used them finish.
+struct ReleaseRecord {
+  std::vector<uint32_t> ids;
+};
+
+using Record = std::variant<ClearRecord, ResolveRecord, SwapRecord, DrawRecord, ReleaseRecord>;
 
 // One queue item: the records since the last hand-off, ending at a Swap.
 struct Packet {

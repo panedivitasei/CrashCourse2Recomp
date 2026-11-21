@@ -1,4 +1,5 @@
 #include "gpu/gpu_tracker.h"
+#include "gpu/gpu.h"
 #include "gpu/gpu_resolve_cache.h"
 #include "gpu/gpu_texture_decode.h"
 
@@ -8,6 +9,8 @@
 #include <mutex>
 #include <tuple>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include <rex/graphics/xenos.h>
 #include <rex/logging.h>
@@ -51,6 +54,13 @@ std::map<SurfaceKey, ResourceDesc> g_surfaces;
 std::unordered_map<uint32_t, TiledEntry> g_tiled;    // keyed by guest surface address
 ResolveTextureCache g_textures;
 uint32_t g_next_id = 1;
+std::vector<std::pair<uint64_t, uint32_t>> g_retired;  // frame dropped, id
+
+// Call with g_mutex held after any Store or Invalidate.
+void CollectRetired() {
+  const uint64_t frame = FrameIndex();
+  for (uint32_t id : g_textures.TakeRetired()) g_retired.emplace_back(frame, id);
+}
 
 }  // namespace
 
@@ -143,6 +153,7 @@ ResourceDesc Texture(uint32_t texture_address) {
   uint32_t physical, size, mip, mip_size;
   TextureMemory(fetch, physical, size, mip, mip_size);
   g_textures.Store(base, std::max(size, 1u), want, guest_format);
+  CollectRetired();
   return want;
 }
 
@@ -157,11 +168,20 @@ void InvalidateResolved(uint32_t base, uint32_t size) {
   if (!base || !size) return;
   std::lock_guard lock(g_mutex);
   g_textures.Invalidate(base, size);
+  CollectRetired();
 }
 
 uint32_t NewId() {
   std::lock_guard lock(g_mutex);
   return g_next_id++;
+}
+
+void TakeRetired(std::vector<uint32_t>& ids) {
+  std::lock_guard lock(g_mutex);
+  const uint64_t frame = FrameIndex();
+  size_t taken = 0;
+  while (taken < g_retired.size() && g_retired[taken].first + 2 <= frame) ids.push_back(g_retired[taken++].second);
+  g_retired.erase(g_retired.begin(), g_retired.begin() + taken);
 }
 
 }  // namespace cc2::gpu::tracker

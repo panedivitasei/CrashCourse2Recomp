@@ -42,6 +42,10 @@ VsSnapshot SnapshotVs(const guest::D3DDevice* device);
 // Completes owned preparation jobs before the guest publishes a packet to the host.
 void FinishPreparation(Packet& packet);
 
+// Drops decoded-texture entries no draw has bound for 30 s of frames and appends their host ids; a later bind
+// decodes the texture again under a new id.
+void SweepTextures(std::vector<uint32_t>& ids);
+
 // Builds and submits a draw from `device`, a merged copy of a recorded and a live device struct; a.device names the
 // device whose shader cache and blend overrides apply. Inline (Begin/UP) draws are not replayed.
 void Replay(PPCContext& ctx, uint8_t* base, const DrawArgs& a, const guest::D3DDevice* device, const VsSnapshot& vs);

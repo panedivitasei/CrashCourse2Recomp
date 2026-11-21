@@ -66,6 +66,8 @@ REXCVAR_DEFINE_INT32(gpu_pipeline_warmup_wait, 120, "GPU",
 REXCVAR_DEFINE_BOOL(gpu_async_pipelines, true, "GPU",
                     "Compile frame pipelines ahead on workers and wait before drawing with an unfinished pipeline");
 REXCVAR_DEFINE_BOOL(gpu_vsync, true, "GPU", "Wait for vblank on present; the Swap hook paces to 60 Hz either way");
+REXCVAR_DEFINE_INT32(gpu_resource_log, 0, "Diagnostics",
+                     "Seconds between log lines counting the host textures and render targets held; 0 = off");
 
 namespace plume {
 extern std::unique_ptr<RenderInterface> CreateD3D12Interface();
@@ -413,6 +415,9 @@ class Backend {
   void Execute(const ResolveRecord& r);
   void Execute(const SwapRecord& r);
   void Execute(DrawRecord& r);
+  void Execute(const ReleaseRecord& r);
+  void FreeRetired();
+  void LogResources();
 
   HostResource* Get(const ResourceDesc& desc);
   plume::RenderPipeline* BlitPipeline(plume::RenderFormat format, bool blend = false);
@@ -539,6 +544,15 @@ class Backend {
   std::vector<uint64_t> sampler_slot_frame_;       // slot -> frame_counter_ of its last use
 
   std::unordered_map<uint32_t, HostResource> resources_;
+  // Released resources, kept until the frames that drew with them have left the GPU.
+  struct Retired {
+    uint64_t frame = 0;  // frame_counter_ when the release ran
+    HostResource resource;
+    std::vector<std::unique_ptr<plume::RenderFramebuffer>> framebuffers;
+  };
+  std::deque<Retired> retired_;
+  uint64_t freed_ = 0;
+  std::chrono::steady_clock::time_point resource_log_at_{};
 
   // Draws.
   bool draws_ready_ = false;
@@ -851,6 +865,7 @@ void Backend::Destroy() {
     compile_threads_.clear();
   }
   draw_framebuffers_.clear();
+  retired_.clear();
   resources_.clear();
   resize_pipelines_.clear();
   for (auto& shader : resize_shaders_) shader.reset();
@@ -1111,6 +1126,61 @@ void Backend::Execute(Record& record) {
   std::visit([this](auto& r) { Execute(r); }, record);
 }
 
+// The guest side no longer names these ids. Each resource leaves the table with the draw framebuffers built on it,
+// and FreeRetired destroys them once both frame slots have cycled.
+void Backend::Execute(const ReleaseRecord& r) {
+  for (uint32_t id : r.ids) {
+    auto node = resources_.extract(id);
+    if (node.empty()) continue;
+    Retired retired{frame_counter_, std::move(node.mapped()), {}};
+    for (auto it = draw_framebuffers_.begin(); it != draw_framebuffers_.end();) {
+      if (std::find(it->first.begin(), it->first.end(), id) != it->first.end()) {
+        retired.framebuffers.push_back(std::move(it->second));
+        it = draw_framebuffers_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    retired_.push_back(std::move(retired));
+  }
+}
+
+void Backend::FreeRetired() {
+  while (!retired_.empty() && frame_counter_ > retired_.front().frame + kFramesInFlight) {
+    for (const auto& [key, index] : retired_.front().resource.views) {
+      if (index == kBlank2D || (index >= kBlank3D && index <= 2047)) continue;
+      texture_set_->setTexture(index, blank_2d_.get(), plume::RenderTextureLayout::SHADER_READ, blank_2d_view_.get());
+      recycled_descriptors_.push_back(index);
+    }
+    retired_.pop_front();
+    ++freed_;
+  }
+}
+
+void Backend::LogResources() {
+  const int32_t seconds = REXCVAR_GET(gpu_resource_log);
+  if (seconds <= 0) return;
+  const auto now = std::chrono::steady_clock::now();
+  if (now - resource_log_at_ < std::chrono::seconds(seconds)) return;
+  resource_log_at_ = now;
+  uint32_t count[4] = {};
+  uint64_t bytes[4] = {};
+  for (const auto& [id, r] : resources_) {
+    const uint32_t kind = uint32_t(r.desc.kind) & 3;
+    const HostFormat format = r.desc.format == HostFormat::kUnsupported ? HostFormat::kRGBA8 : r.desc.format;
+    const uint64_t block = HostBlockSize(format);
+    uint64_t size = ((r.width + block - 1) / block) * ((r.height + block - 1) / block) * HostBlockBytes(format) *
+                    r.layers() * r.samples * (r.volume() ? std::max(r.desc.depth, 1u) : 1u);
+    if (r.mips() > 1) size += size / 3;
+    ++count[kind];
+    bytes[kind] += size;
+  }
+  REXGPU_INFO("[gpu] held: {} colour {} MB, {} depth {} MB, {} resolve {} MB, {} decoded {} MB; {} freed, {} pending, "
+              "{} framebuffers, descriptor {}",
+              count[0], bytes[0] >> 20, count[1], bytes[1] >> 20, count[2], bytes[2] >> 20, count[3], bytes[3] >> 20,
+              freed_, retired_.size(), draw_framebuffers_.size(), next_descriptor_);
+}
+
 // Guest rects to host texels of the target, clipped to it.
 std::vector<plume::RenderRect> Backend::ClipRects(const std::vector<Rect>& rects, const HostResource& target) const {
   std::vector<plume::RenderRect> out;
@@ -1352,6 +1422,8 @@ void Backend::Execute(const SwapRecord& r) {
   ++frame_counter_;
   // A frame's persistent frees are safe once every slot has cycled past it.
   if (frame_counter_ > kFramesInFlight) persistent_.Retire(frame_counter_ - kFramesInFlight - 1);
+  FreeRetired();
+  LogResources();
   // The display menu's slider moves in steps: a scale is applied once it has held for a moment, so a drag resizes
   // (and resamples what the targets hold) once rather than at every step.
   const uint32_t scale = uint32_t(cc2::display::ResolutionScale()), shadow_scale = uint32_t(cc2::display::ShadowScale());

@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 
 #include "gpu/gpu_records.h"
 
@@ -30,5 +31,8 @@ uint32_t ResolveEpoch();
 
 // A fresh host resource id, shared with the surface and texture ids above.
 uint32_t NewId();
+
+// Appends the ids of resolve textures dropped at least two frames ago, so no pending record still names them.
+void TakeRetired(std::vector<uint32_t>& ids);
 
 }  // namespace cc2::gpu::tracker

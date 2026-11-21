@@ -3,6 +3,8 @@
 #include <atomic>
 #include <cstdint>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "gpu/gpu_records.h"
 
@@ -25,6 +27,9 @@ class ResolveTextureCache {
   }
 
   void Store(uint32_t base, uint32_t size, const ResourceDesc& desc, uint32_t guest_format) {
+    if (const auto it = entries_.find(base); it != entries_.end() && it->second.desc.id != desc.id) {
+      retired_.push_back(it->second.desc.id);
+    }
     entries_[base] = {desc, size, guest_format};
     epoch_.fetch_add(1, std::memory_order_release);
   }
@@ -35,6 +40,7 @@ class ResolveTextureCache {
     for (auto it = entries_.begin(); it != entries_.end();) {
       if (uint64_t(base) < uint64_t(it->first) + it->second.size &&
           uint64_t(it->first) < uint64_t(base) + size) {
+        retired_.push_back(it->second.desc.id);
         it = entries_.erase(it);
         ++removed;
       } else {
@@ -47,6 +53,9 @@ class ResolveTextureCache {
 
   uint32_t Epoch() const { return epoch_.load(std::memory_order_acquire); }
 
+  // Ids of entries dropped since the last call.
+  std::vector<uint32_t> TakeRetired() { return std::exchange(retired_, {}); }
+
  private:
   struct Entry {
     ResourceDesc desc;
@@ -54,6 +63,7 @@ class ResolveTextureCache {
     uint32_t guest_format;
   };
   std::unordered_map<uint32_t, Entry> entries_;
+  std::vector<uint32_t> retired_;
   std::atomic<uint32_t> epoch_{1};
 };
 
