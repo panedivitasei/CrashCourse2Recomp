@@ -4,6 +4,9 @@
 // passes a null overlapped; real XAM tolerates that where the runtime faults.
 // Same bodies as the runtime with the null checks the console applies.
 
+#include "cc2/clips.h"
+#include "cc2/leaderboards.h"
+
 #include <rex/hook.h>
 #include <rex/kernel/xam/private.h>
 #include <rex/kernel/xboxkrnl/error.h>
@@ -22,6 +25,8 @@ u32 XMsgCancelIORequest_entry(ppc_ptr_t<XAM_OVERLAPPED> overlapped_ptr, u32 wait
   if (!overlapped_ptr) {
     return 0;
   }
+  cc2::boards::Cancel(overlapped_ptr.guest_address());
+  cc2::clips::Cancel(overlapped_ptr.guest_address());
   X_HANDLE event_handle = XOverlappedGetEvent(overlapped_ptr);
   if (event_handle && wait) {
     auto ev = REX_KERNEL_OBJECTS()->LookupObject<XEvent>(event_handle);

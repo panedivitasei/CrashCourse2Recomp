@@ -36,6 +36,8 @@
 #include "cc2/kernel/xam/local_players.h"
 #include <rex/filesystem.h>
 #include "cc2/kernel/xam/xam_avatar.h"
+#include "cc2/avatar_fetch.h"
+#include "cc2/clips.h"
 #include "cc2/lobby.h"
 #include <rex/logging.h>
 #include <rex/math.h>
@@ -56,6 +58,7 @@
 // game_data_root is defined in the runtime (runtime.cpp, global namespace);
 // read here to locate the DCC2 AI avatar looks under data/art/_avatar/.
 REXCVAR_DECLARE(std::string, game_data_root);
+REXCVAR_DECLARE(bool, online_mode);
 
 // Titles that need a full avatar implementation may crash with this on; it
 // defaults on so avatar-using titles boot.
@@ -982,15 +985,21 @@ u32 XamAvatarGetAssets_entry(ppc_ptr_t<X_AVATAR_METADATA> avatar_metadata_ptr,
     // captured manifest.
     const bool random_npc =
         static_cast<uint64_t>(metadata->owner_xuid) == kRandomAvatarXuid;
+    // A folder clip's manifest is never taken for the player's unless it is the one the player wears now.
+    const bool from_clip =
+        !random_npc && cc2::clips::IsClipManifest(reinterpret_cast<const uint8_t*>(metadata)) &&
+        !(g_have_metadata && std::memcmp(metadata, g_captured_metadata, sizeof(g_captured_metadata)) == 0);
+    // Its ghost renders as recorded in online mode, where missing items can be fetched, and as an AI look offline.
+    const bool clip_ghost = from_clip && REXCVAR_GET(online_mode);
     // Lobby members' manifests come stamped with their own XUID (cc2::lobby), and must render as sent.
     const bool remote_player =
-        !random_npc && cc2::lobby::IsPeerXuid(static_cast<uint64_t>(metadata->owner_xuid));
+        !random_npc && (clip_ghost || cc2::lobby::IsPeerXuid(static_cast<uint64_t>(metadata->owner_xuid)));
     uint32_t local_player = 0;  // 2-4: a local player's build, dealt a dev avatar like the AI
     for (uint32_t u = 1; u < 4; ++u) {
       if (static_cast<uint64_t>(metadata->owner_xuid) == cc2::kernel::xam::LocalPlayerXuid(u)) local_player = u + 1;
     }
     const bool is_player_build =
-        !random_npc && !remote_player && !local_player &&
+        !random_npc && !remote_player && !from_clip && !local_player &&
         (!g_have_metadata ||
          std::memcmp(metadata, g_captured_metadata, sizeof(g_captured_metadata)) == 0);
     if (is_player_build) {
@@ -1016,7 +1025,9 @@ u32 XamAvatarGetAssets_entry(ppc_ptr_t<X_AVATAR_METADATA> avatar_metadata_ptr,
     // in place of the canonical per-track ghosts the clips embed. The incoming
     // manifest is matched against the shipped AI looks only for the log.
     avatars::X_AVATAR_METADATA ai_metadata;
-    if (remote_player) {
+    if (clip_ghost) {
+      REXKRNL_INFO("[avatar] clip ghost build -> the clip's manifest");
+    } else if (remote_player) {
       REXKRNL_INFO("[avatar] remote player build ({:016X})",
                    static_cast<uint64_t>(metadata->owner_xuid));
     } else if (local_player && LocalPlayerManifest(local_player - 1, nullptr)) {
@@ -1047,11 +1058,32 @@ u32 XamAvatarGetAssets_entry(ppc_ptr_t<X_AVATAR_METADATA> avatar_metadata_ptr,
     // addresses are still pending (garbled face decals, DXT noise). On
     // hardware the fetch is in-order within the frame and the title's own
     // fencing suffices.
-    avatars::MemoryBlock cpu_memory(cpu_host, 16);
-    avatars::MemoryBlock gpu_memory(gpu_host, 4096);
+    uint32_t budget_cpu = 0, budget_gpu = 0;
+    AssetBuildBudget(avatar_component_mask, &budget_cpu, &budget_gpu);
+    // A clip's manifest comes from a shared file: its build stops at what the title allocated and waits on no download.
+    const bool recorded = from_clip && metadata != &ai_metadata;
+    avatars::MemoryBlock cpu_memory(cpu_host, 16, recorded ? budget_cpu : SIZE_MAX);
+    avatars::MemoryBlock gpu_memory(gpu_host, 4096, recorded ? budget_gpu : SIZE_MAX);
+    cc2::avatar_fetch::SetWaiting(!recorded);
     bool ok = avatars::LoadAssetsToGuest(*metadata, avatar_component_mask, flags, pack,
                                          &cpu_memory, &gpu_memory, skeleton_version,
                                          g_coordinate_system);
+    cc2::avatar_fetch::SetWaiting(true);
+    if (recorded && (!ok || cpu_memory.spilled() || gpu_memory.spilled())) {
+      // The clip's avatar did not fit or build, so the ghost gets a dealt look like any other AI.
+      const LoadedAiLook* look = REXCVAR_GET(dcc2_ai_avatar_randomize) ? DealAiLook(/*costume_only=*/false) : nullptr;
+      REXKRNL_WARN("[avatar] clip ghost build failed or passed the title's buffers -> {}",
+                   look ? "randomized look '" + look->name + "'" : std::string("no avatar"));
+      ok = false;
+      if (look) {
+        std::memcpy(&ai_metadata, look->amd.data(), sizeof(ai_metadata));
+        if (!look->strb.empty()) avatars::SetPendingExtraComponentStrb(look->strb.data(), look->strb.size());
+        cpu_memory = avatars::MemoryBlock(cpu_host, 16);
+        gpu_memory = avatars::MemoryBlock(gpu_host, 4096);
+        ok = avatars::LoadAssetsToGuest(ai_metadata, avatar_component_mask, flags, pack, &cpu_memory, &gpu_memory,
+                                        skeleton_version, g_coordinate_system);
+      }
+    }
     avatars::SetPendingExtraComponentStrb(nullptr, 0);  // clear leftover on failure
     if (!ok) {
       REXKRNL_WARN("[avatar] GetAssets: LoadAssetsToGuest failed (mask={:#x})",
@@ -1062,8 +1094,6 @@ u32 XamAvatarGetAssets_entry(ppc_ptr_t<X_AVATAR_METADATA> avatar_metadata_ptr,
     gpu_memory.ResolvePointers(gpu_addr);
     {
       // Past the budget means the title's neighbouring data is already gone.
-      uint32_t budget_cpu = 0, budget_gpu = 0;
-      AssetBuildBudget(avatar_component_mask, &budget_cpu, &budget_gpu);
       if (cpu_memory.used() > budget_cpu || gpu_memory.used() > budget_gpu) {
         REXKRNL_WARN("[avatar] GetAssets: build (mask={:#x}) used cpu {:#x} gpu {:#x}, over the "
                      "{:#x}/{:#x} the title was told to allocate",

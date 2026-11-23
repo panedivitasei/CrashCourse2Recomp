@@ -34,7 +34,7 @@
 
 REXCVAR_DEFINE_BOOL(cc2_mouse, true, "Input", "Drive the game's GUI pointer with the mouse; left click is A, right click is B");
 REXCVAR_DEFINE_INT32(cc2_mouse_move_hz, 0, "Input", "Cap on pointer-move events sent to the GUI per second; 0 = every frame");
-REXCVAR_DEFINE_STRING(cc2_mouse_cursors, "menus,pause,guimessages", "Input",
+REXCVAR_DEFINE_STRING(cc2_mouse_cursors, "menus,pause,guimessages,allgamepads", "Input",
                       "Comma-separated GUI cursor names the mouse drives");
 
 // GUIINPUT (TU1): the pointer move and button entry points the pad's pointer uses, called here with the mouse.
@@ -437,6 +437,20 @@ uint32_t ClickableAt(PPCContext& ctx, uint8_t* base, uint32_t cursor, float x, f
   }
   ctx = saved;
   return 0;
+}
+
+// A screen none of whose controls has a mouse area takes buttons only: message popups, the local multiplayer lobby.
+bool ButtonsOnly(uint32_t cursor) {
+  if (Read8(cursor + 185)) return false;  // the list is stale
+  const auto controls = CursorControls(cursor);
+  for (const uint32_t c : controls) {
+    const uint32_t master = c && !Read8(c + 96) ? Read32(c + 88) : 0;
+    if (!master) return false;
+    // GUICLICKABLE::ContainsPoint tests the master's rectangle, or its polygon when that has more than two points.
+    if ((ReadFloat(master + 184) > 0 && ReadFloat(master + 188) > 0) ||
+        (Read32(master + 224) - Read32(master + 220)) >> 3 > 2) return false;
+  }
+  return !controls.empty();
 }
 
 bool SelectBinding(PPCContext& ctx, uint8_t* base, uint32_t control, uint32_t scope) {
@@ -862,13 +876,16 @@ void Tick(PPCContext& ctx, uint8_t* base) {
       }
       if (i == 0) {
         const uint32_t target = ClickableAt(ctx, base, state, bx, by);
-        g_swallowed = true;
-        if (target && int32_t(Read32(gui + 4)) <= 0) {
-          const int parent=MainMenuParent(target);
-          if (!cc2::display::MainMenuPointer(ctx,base,parent,true))
-            ClickControl(ctx, base, gui, state, target, bx, by);
+        // With nothing on screen to point at, a left press goes to the GUI as the pad's A.
+        if (target || !ButtonsOnly(state)) {
+          g_swallowed = true;
+          if (target && int32_t(Read32(gui + 4)) <= 0) {
+            const int parent=MainMenuParent(target);
+            if (!cc2::display::MainMenuPointer(ctx,base,parent,true))
+              ClickControl(ctx, base, gui, state, target, bx, by);
+          }
+          continue;
         }
-        continue;
       }
       g_down[i] = true;
     } else {

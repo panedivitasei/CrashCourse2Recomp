@@ -12,6 +12,8 @@
 // Disable warnings about unused parameters for kernel functions
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
+#include "cc2/clips.h"
+#include "cc2/leaderboards.h"
 #include "cc2/lobby.h"
 #include "cc2/online.h"
 #include "cc2/kernel/xam/local_players.h"
@@ -1026,6 +1028,19 @@ u32 XamUserCreateStatsEnumerator_entry(u32 title_id, u32 enumerator_type, u64 pi
   *buffer_size_ptr = static_cast<uint32_t>(sizeof(X_USER_STATS_READ_RESULTS)) + views_size;
   *handle_ptr = e->handle();
 
+  // The leaderboard screens' by-rank reads of a course board are answered with the server's rows at XamEnumerate.
+  if (const uint32_t size = cc2::boards::Track(e->handle(), enumerator_type, pivot_user, num_rows,
+                                               num_stats_specs, spec_array[0].view_id)) {
+    *buffer_size_ptr = size;
+    return X_ERROR_SUCCESS;
+  }
+  // The Time Trial clip list's read is answered with the clips folder's rows the same way.
+  if (const uint32_t size = cc2::clips::Track(e->handle(), enumerator_type, num_rows, num_stats_specs,
+                                              spec_array[0].view_id)) {
+    *buffer_size_ptr = size;
+    return X_ERROR_SUCCESS;
+  }
+
   REXKRNL_DEBUG("XamUserCreateStatsEnumerator({:08X}, type={}, pivot={:016X}, rows={}, specs={}) "
                 "-> empty leaderboard",
                 title_id, enumerator_type, pivot_user, num_rows, num_stats_specs);
@@ -1232,6 +1247,13 @@ u32 XamUserValidateAvatarManifest_entry(u32 user_index, mapped_void manifest_ptr
 }  // namespace xam
 }  // namespace kernel
 }  // namespace rex
+
+void cc2::kernel::xam::LocalXuidLows(uint32_t* lows) {
+  for (uint32_t u = 0; u < 4; ++u) {
+    lows[2 * u] = uint32_t(LocalPlayerXuid(u));
+    lows[2 * u + 1] = uint32_t(u ? rex::kernel::xam::LocalPlayerOnlineXuid(u) : rex::kernel::xam::OnlineXuid());
+  }
+}
 
 REX_EXPORT(__imp__XamUserGetXUID, rex::kernel::xam::XamUserGetXUID_entry)
 REX_EXPORT(__imp__XamUserGetSigninState, rex::kernel::xam::XamUserGetSigninState_entry)

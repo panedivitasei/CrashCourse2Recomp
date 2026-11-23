@@ -18,7 +18,9 @@
 
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
+#include <rex/hook.h>
 #include <rex/logging.h>
+#include <rex/ppc/context.h>
 #include <rex/runtime.h>
 #include <rex/system/achievement_manager.h>
 #include <rex/system/kernel_state.h>
@@ -297,3 +299,15 @@ std::string SignedInName() {
 bool ReportLive() { return !REXCVAR_GET(online_mode) || g_live.load(); }
 
 }  // namespace cc2::online
+
+// Declared in the Guide (jmlive/src/live.h): opens it on the game's achievements.
+namespace rexglue_guide::live {
+void RequestAchievements();
+}
+
+// XShowAchievementsUI(user): the menus' Achievements.
+REX_HOOK_RAW(__imp__XamShowAchievementsUI) {
+  REXLOG_INFO("[online] the game asked for its achievements: opening the Guide on them");
+  rexglue_guide::live::RequestAchievements();
+  ctx.r3.u64 = 0;
+}

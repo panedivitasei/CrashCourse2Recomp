@@ -19,5 +19,7 @@ bool FetchNext();
 bool ReadCachedItem(const std::string& guid, std::vector<uint8_t>& out);
 // Waits up to timeout_ms while the item is queued or downloading, so a build that races the prefetch still gets it.
 void WaitForItem(const std::string& guid, int timeout_ms);
+// Turns that wait off or on for this thread's builds; a build that must not stall takes the fallback piece instead.
+void SetWaiting(bool wait);
 
 }  // namespace cc2::avatar_fetch

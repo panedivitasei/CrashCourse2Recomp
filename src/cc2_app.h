@@ -30,6 +30,8 @@
 #include "cc2/freecam.h"
 #include "cc2/achievement_catalog.h"
 #include "cc2/online.h"
+#include "cc2/leaderboards.h"
+#include "cc2/clips.h"
 #include "cc2/lobby.h"
 #include "cc2/mouse_ui.h"
 #include "cc2/keyboard_bindings.h"
@@ -158,9 +160,9 @@ class Cc2App : public rex::ReXApp {
   }
 
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
-    // Installed builds (JMinstaller sets user_data_root) have no debug (F3) or settings (F4) overlay.
+    // Installed builds (JMinstaller sets user_data_root) have no debug (F3), settings (F4) or console (`) overlay.
     if (!REXCVAR_GET(user_data_root).empty()) {
-      for (const char* bind : {"bind_debug_overlay", "bind_settings"}) {
+      for (const char* bind : {"bind_debug_overlay", "bind_settings", "bind_console"}) {
         if (rex::cvar::GetFlagSource(bind) == rex::cvar::Source::kDefault) rex::cvar::SetFlagByName(bind, "");
       }
     }
@@ -171,7 +173,7 @@ class Cc2App : public rex::ReXApp {
     AdoptSavedLogin(userdata / "JMlive" / "gamejolt-login.bin");
     jmlive::Configure({.gamertag = REXCVAR_GET(user_name),
                        .server_url = REXCVAR_GET(cc2_server_url),
-                       .client_version = "2.0.0",  // ProductVersion in cc2.rc
+                       .client_version = "0.1.2",  // the release; the server turns away older ones
                        .online = REXCVAR_GET(online_mode)});
     rexglue_guide::Install(this, drawer,
                            {.title_name = "Crash Course 2",
@@ -253,6 +255,8 @@ class Cc2App : public rex::ReXApp {
       close_queued_ = true;
       if (!app_context().CallInUIThreadDeferred([this] {
             cc2::online::Stop();
+            cc2::boards::Stop();
+            cc2::clips::Stop();
             cc2::lobby::Shutdown();
             cc2::mouse::Shutdown();
             cc2::display::Shutdown();
@@ -298,6 +302,8 @@ class Cc2App : public rex::ReXApp {
     rex::audio::StartXmaKicker();
     cc2::achievements::WriteCatalog(runtime());
     cc2::online::Start(runtime());
+    cc2::boards::Start();
+    cc2::clips::Start();
   }
 
   void OnShutdown() override {

@@ -10,6 +10,8 @@
 #ifndef XENIA_AVATARS_MEMORY_BLOCK_H_
 #define XENIA_AVATARS_MEMORY_BLOCK_H_
 
+#include <cstdint>
+#include <memory>
 #include <vector>
 
 #include <rex/types.h>
@@ -21,9 +23,10 @@ namespace avatars {
 
 class MemoryBlock {
  public:
-  MemoryBlock(uint8_t* buffer, size_t alignment)
+  MemoryBlock(uint8_t* buffer, size_t alignment, size_t limit = SIZE_MAX)
       : buffer_(buffer),
         alignment_(alignment),
+        limit_(limit),
         current_offset_(0),
         offset_pointers_() {}
 
@@ -33,8 +36,16 @@ class MemoryBlock {
     current_offset_ += align(size, alignment_);
     if (claimed_offset != nullptr)
       *claimed_offset = static_cast<uint32_t>(current_offset);
+    if (current_offset_ > limit_) {
+      // A claim past the limit is served from host memory, leaving the buffer's neighbours alone.
+      spill_.push_back(std::make_unique<uint8_t[]>(align(size, alignment_) + alignment_));
+      return spill_.back().get();
+    }
     return claim;
   }
+
+  // The build asked for more than the limit, so the buffer holds only part of it.
+  bool spilled() const { return !spill_.empty(); }
 
   template <typename T>
   T* Claim(uint32_t* claimed_offset = nullptr, size_t count = 1) {
@@ -63,7 +74,9 @@ class MemoryBlock {
  private:
   uint8_t* buffer_;
   size_t alignment_;
+  size_t limit_;
   size_t current_offset_;
+  std::vector<std::unique_ptr<uint8_t[]>> spill_;
   std::vector<be<uint32_t>*> offset_pointers_;
 };
 

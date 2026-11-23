@@ -7,4 +7,6 @@ bool LocalPlayer(uint32_t user_index);           // users 1-3 with a connected c
 uint64_t LocalPlayerXuid(uint32_t user_index);   // offline-format XUID per local player
 uint32_t SignedInUserMask();                     // XN_SYS_SIGNINCHANGED parameter: bit per signed-in user
 void PollLocalPlayers();                         // per frame: sign-in changes and the Guide sign-in closing
+constexpr uint32_t kLocalXuids = 8;
+void LocalXuidLows(uint32_t* lows);              // low halves of the four players' XUIDs, offline and online form
 }  // namespace cc2::kernel::xam

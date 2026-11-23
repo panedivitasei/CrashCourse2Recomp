@@ -75,6 +75,7 @@ std::deque<std::pair<std::string, uint32_t>> g_queue;  // guid and title id, wai
 std::set<std::string> g_busy;        // queued or downloading
 std::set<std::string> g_missing;     // the server has no such item; not asked again this run
 std::filesystem::path g_dir;
+thread_local bool t_wait = true;
 
 std::filesystem::path CacheDir() {
   std::lock_guard lock(g_mutex);
@@ -224,7 +225,10 @@ bool ReadCachedItem(const std::string& guid, std::vector<uint8_t>& out) {
   return bool(in.read(reinterpret_cast<char*>(out.data()), size));
 }
 
+void SetWaiting(bool wait) { t_wait = wait; }
+
 void WaitForItem(const std::string& guid, int timeout_ms) {
+  if (!t_wait) return;
   std::unique_lock lock(g_mutex);
   g_done.wait_for(lock, std::chrono::milliseconds(timeout_ms), [&] { return !g_busy.count(guid); });
 }

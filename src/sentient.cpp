@@ -36,6 +36,8 @@
 #include "cc2_init.h"
 #include "cc2/display_settings.h"
 #include "cc2/famestar.h"
+#include "cc2/clips.h"
+#include "cc2/leaderboards.h"
 #include "cc2/lobby.h"
 #include "cc2/mouse_ui.h"
 #include "dcc2_tu1_map.h"  // base<->TU1 guest address selection (must follow cc2_init.h)
@@ -625,6 +627,8 @@ void DCC2_SceneComposeTick() {
   uint8_t* base = REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(0);
   cc2::display::Tick(ctx, base);
   cc2::lobby::Tick(ctx, base);
+  cc2::boards::Tick(ctx, base);
+  cc2::clips::Tick(ctx, base);
   cc2::fame::LobbyTick(ctx, base);
   cc2::mouse::Tick(ctx, base);
   cc2::mouse::GloveTick(ctx, base);
@@ -709,6 +713,10 @@ bool DCC2_ForceLocalClipsInNemesis(PPCRegister& r3) {
   // Time Trial (mode 1) only: sub_82B7C550 ranks players+ghosts in a 4-slot stack buffer, so
   // three ghosts on top of an online lobby smash its /GS cookie (0xC0000409 -> KeBugCheck).
   if (mode != 1u) {
+    return false;
+  }
+  // Clips added on the Time Trial page fill the same three ghost slots.
+  if (cc2::clips::Racing()) {
     return false;
   }
   return true;  // jump to the sub_82B5B558 fall-through

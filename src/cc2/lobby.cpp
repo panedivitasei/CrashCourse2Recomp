@@ -942,6 +942,8 @@ void MenuMapWatchdog(PPCContext& ctx, uint8_t* base, uint32_t main_state) {
   // The first step the game's own back-from-level handler takes; hiding the logo props and centring the camera follow.
   const int result = Lua(ctx, base, L,
                          "if camera then camera.Fov=45 end gui.LoadMap('mainmenu/mainmenumap.wxm') mainmenumaploaded=1 "
+                         // The map's music actor starts on the shop mix.
+                         "if gui.SetMusicIntensity then gui.SetMusicIntensity(3) end "
                          "return 10");
   pans = 2;
   REXLOG_INFO("[lobby] main menu was up without its map; reloaded it (result {}, {} actors now)", result,

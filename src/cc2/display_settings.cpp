@@ -21,6 +21,7 @@
 #include <vector>
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
+#include <rex/hook.h>
 #include <rex/logging.h>
 #include <rex/ppc/func.h>
 #include <rex/system/kernel_state.h>
@@ -46,6 +47,8 @@ extern "C" REX_FUNC(sub_824C9300);
 extern "C" REX_FUNC(sub_824CA4C0);
 extern "C" REX_FUNC(sub_822DCCA8);  // item grid selection and viewport
 extern "C" REX_FUNC(sub_82B03230);  // shop preview and action refresh
+extern "C" REX_FUNC(sub_82AEF6F0);  // sets the music and sound masters from a profile's saved volumes
+extern "C" REX_FUNC(__imp__sub_823048F8);
 
 namespace cc2::display {
 namespace {
@@ -570,4 +573,21 @@ void Tick(PPCContext& ctx,uint8_t* base) {
   if (selected>=100 && !in_menu) original=current;
   in_menu=selected>=100;
 }
+}
+
+// The profile's Title Storage read: the title script's SetInputOwner call, which applied the saved volumes, is patched
+// out of guigroup.wbr, so they are applied here the way the game's own profile-read callback (sub_82AF2CD8) does.
+REX_HOOK_RAW(sub_823048F8) {
+  using cc2::display::Read;
+  const uint32_t profile=Read(ctx.r3.u32+8);
+  __imp__sub_823048F8(ctx,base);
+  const uint32_t gui=Read(kGA_82E73C64);
+  // Zero means the read failed and left the profile as it was.
+  if (!(ctx.r3.u32&255) || !profile || !gui || !Read(kGA_82EB6328) || Read(gui+29280)!=Read(profile+4)) return;
+  const PPCContext saved=ctx;
+  ctx.r3.u64=profile;
+  sub_82AEF6F0(ctx,base);
+  ctx=saved;
+  const auto volume=[&](uint32_t offset) {return float(*reinterpret_cast<const rex::be<float>*>(base+profile+offset));};
+  REXLOG_INFO("[display] profile volumes applied: music {:.2f} sfx {:.2f}",volume(2744),volume(2740));
 }

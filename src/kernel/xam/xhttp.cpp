@@ -32,6 +32,7 @@
 #include <vector>
 
 #include <rex/hook.h>
+#include "cc2/clips.h"
 #include "cc2/kernel/xam/lg_economy_file.h"
 #include "cc2/kernel/xam/lg_transactions.h"
 #include "cc2/kernel/xnet.h"
@@ -886,6 +887,9 @@ static void ServeRequest(XHttpRequest& r) {
     // progressEndpoint), so this cannot shadow a Title Storage blob path.
     r.status = 200;
     r.body = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<response/>\r\n";
+  } else if (verb == "GET" && cc2::clips::Serve(r.path, &r.body)) {
+    // A Time Trial row's game clip comes from the clips folder.
+    r.status = 200;
   } else if (verb == "PUT" || verb == "POST") {
     // Uploads (profile saves, stats, gateway posts): accept + persist so a later
     // GET returns the same bytes -- a real Title Storage round-trip.

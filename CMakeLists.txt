@@ -49,6 +49,9 @@ set(CC2_SOURCES
     src/cc2/mouse_ui.cpp
     src/cc2/keyboard_bindings.cpp
     src/cc2/online.cpp
+    src/cc2/leaderboards.cpp
+    src/cc2/clips.cpp
+    src/cc2/rope_step.cpp
     src/cc2/lobby.cpp
     src/cc2/relay.cpp
     src/cc2/avatar_fetch.cpp
