@@ -10,7 +10,7 @@
 
 ## Assets
 
-TU1 (Media ID: 6FBC14D5) and Hong Kong DLC are required.
+TU2 (v0.0.2.5) and Hong Kong DLC are required.
 
 ## Steps
 
